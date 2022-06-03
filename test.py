@@ -63,8 +63,9 @@ def main(opt, n_model=500000, benchmark='Set5'):
     test_results['ssim'] = []
     test_results['psnr_y'] = []
     test_results['ssim_y'] = []
-    test_results['psnr_b'] = []
-    psnr, ssim, psnr_y, ssim_y, psnr_b = 0, 0, 0, 0, 0
+    # test_results['psnr_b'] = []
+    psnr, ssim, psnr_y, ssim_y = 0, 0, 0, 0
+    # psnr_b = 0
 
     for idx, path in enumerate(sorted(glob.glob(os.path.join(folder, '*')))):
         # read image
@@ -87,7 +88,7 @@ def main(opt, n_model=500000, benchmark='Set5'):
                 :, :, :h_old + h_pad, :]
             img_lq = torch.cat([img_lq, torch.flip(img_lq, [3])], 3)[
                 :, :, :, :w_old + w_pad]
-            output = model(img_lq)
+            output = model(img_lq)[0]
             output = output[..., :h_old * opt['scale'], :w_old * opt['scale']]
 
         # save image
@@ -225,14 +226,15 @@ def test(opt,
 if __name__ == '__main__':
     test_model_list = ['hfpsr_prototype']
     benchmarks = ['Set5', 'Set14', 'manga109', 'urban100', 'BSDS100']
-    unit_iter = 20000
-    max_iter = 500000
+    unit_iter = 20
+    max_iter = 60
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--opt', type=str, default=None)
-    opt = option.parse(parser.parse_args().opt)
+    opt = parser.parse_args().opt
 
     if opt is not None:
+        opt = option.parse(opt)
         test(opt, benchmarks, unit_iter, max_iter)
     else:
         for test_model in test_model_list:
