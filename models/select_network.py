@@ -30,7 +30,7 @@ def define_G(opt):
                    ffc_depths=opt_net['ffc_depths'],
                    depths=opt_net['depths'],
                    num_heads=opt_net['num_heads'],
-                   cva=opt_net['cva'],
+                   ff_layer=opt_net['ff_layer'],
                    embed_dim=opt_net['embed_dim'],
                    mlp_ratio=opt_net['mlp_ratio'],
                    upsampler=opt_net['upsampler'],
