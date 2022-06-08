@@ -8,7 +8,6 @@ import torch
 import requests
 import csv
 
-# from models.network_hfpsr import HFPSR as net
 from utils import utils_image as util
 from utils import utils_option as option
 import torch.nn as nn
@@ -25,27 +24,19 @@ def main(opt, n_model=500000, benchmark='Set5'):
     model_path = f'superresolution/{opt["task"]}/models/{n_model}_G.pth'
     opt['model_path'] = model_path
     opt['benchmark'] = benchmark
-    # opt_test['benchmark'] = benchmark
-    # opt_test['folder_lq'] = f'testsets/{benchmark}/LR_bicubic/X{scale}'
-    # opt_test['folder_gt'] = f'testsets/{benchmark}/HR'
-    training_patch_size = opt['netG']['img_size']
-
-    # args.model_path = f'superresolution/{args.task}/models/{n_model}_G.pth'
-    folder_lq = f'testsets/{opt["benchmark"]}/LR_bicubic/X{opt["scale"]}'
-    folder_gt = f'testsets/{benchmark}/HR'
-    # args.training_patch_size = 48
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     # set up model
     if os.path.exists(model_path):
         print(f'loading model from {model_path}')
     else:
-        os.makedirs(os.path.dirname(model_path), exist_ok=True)
-        url = 'https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/{}'.format(
-            os.path.basename(model_path))
-        r = requests.get(url, allow_redirects=True)
-        print(f'downloading model {model_path}')
-        open(model_path, 'wb').write(r.content)
+        raise FileNotFoundError(f'{model_path} file not found')
+        # os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        # url = 'https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/{}'.format(
+        #     os.path.basename(model_path))
+        # r = requests.get(url, allow_redirects=True)
+        # print(f'downloading model {model_path}')
+        # open(model_path, 'wb').write(r.content)
 
     model = define_model(opt)
     model.eval()
@@ -64,6 +55,7 @@ def main(opt, n_model=500000, benchmark='Set5'):
     test_results['psnr_y'] = []
     test_results['ssim_y'] = []
     # test_results['psnr_b'] = []
+
     psnr, ssim, psnr_y, ssim_y = 0, 0, 0, 0
     # psnr_b = 0
 
@@ -88,7 +80,7 @@ def main(opt, n_model=500000, benchmark='Set5'):
                 :, :, :h_old + h_pad, :]
             img_lq = torch.cat([img_lq, torch.flip(img_lq, [3])], 3)[
                 :, :, :, :w_old + w_pad]
-            output = model(img_lq)[0]
+            output = forward(img_lq, model, opt)
             output = output[..., :h_old * opt['scale'], :w_old * opt['scale']]
 
         # save image
@@ -185,20 +177,61 @@ def get_image_pair(opt, path):
     return imgname, img_lq, img_gt
 
 
-def test(opt,
-         benchmarks=['Set5', 'Set14', 'manga109', 'urban100', 'BSDS100'],
-         unit_iter=20000,
-         max_iter=500000):
+def forward(img_lq, model, opt):
+
+    if opt['tile'] is not None:
+        # test the image tile by tile
+        tile = opt['tile']
+
+        b, c, h, w = img_lq.size()
+        tile = min(tile, h, w)
+        assert tile % opt['netG']['window_size'] == 0, "tile size should be a multiple of window_size"
+
+        sf = opt['scale']
+
+        stride = tile
+        h_idx_list = list(range(0, h-tile, stride)) + [h-tile]
+        w_idx_list = list(range(0, w-tile, stride)) + [w-tile]
+        E = torch.zeros(b, c, h*sf, w*sf).type_as(img_lq)
+        W = torch.zeros_like(E)
+
+        for h_idx in h_idx_list:
+            for w_idx in w_idx_list:
+                in_patch = img_lq[..., h_idx:h_idx+tile, w_idx:w_idx+tile]
+                out_patch = model(in_patch)[0]
+                out_patch_mask = torch.ones_like(out_patch)
+
+                E[..., h_idx*sf:(h_idx+tile)*sf, w_idx *
+                  sf:(w_idx+tile)*sf].add_(out_patch)
+                W[..., h_idx*sf:(h_idx+tile)*sf, w_idx *
+                  sf:(w_idx+tile)*sf].add_(out_patch_mask)
+        output = E.div_(W)
+    else:
+        # test the image as a whole
+        output = model(img_lq)
+
+    return output[0]
+
+
+def test(args):
     global _result_psnr, _result_ssim, _result_psnr_y, _result_ssim_y
 
-    for benchmark in benchmarks:
+    opt = option.parse(args.opt)
+    n_iter = int(args.max_iter/args.unit_iter)
+
+    opt['tile'] = args.tile
+
+    if not isinstance(args.benchmarks, list):
+        args.benchmarks = [args.benchmarks]
+
+    for benchmark in args.benchmarks:
         _iter_list = list()
-        for i in range(int(max_iter/unit_iter)):
+        for n in range(n_iter):
 
-            n_iter = (i+1)*unit_iter
-            _iter_list.append(n_iter)
+            _iter = (n+1)*args.unit_iter
+            _iter_list.append(_iter)
 
-            main(opt, n_model=n_iter, benchmark=benchmark)
+            main(opt, n_model=_iter, benchmark=benchmark)
 
         res = list()
         res.append(_iter_list)
@@ -224,19 +257,20 @@ def test(opt,
 
 
 if __name__ == '__main__':
-    test_model_list = ['hfpsr_prototype']
-    benchmarks = ['Set5', 'Set14', 'manga109', 'urban100', 'BSDS100']
-    unit_iter = 20
-    max_iter = 60
+    test_opt_list = ['hfpsr_prototype']
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--opt', type=str, default=None)
-    opt = parser.parse_args().opt
+    parser.add_argument('--tile', type=int, default=None)
+    parser.add_argument('--benchmarks', type=str,
+                        default=['Set5', 'Set14', 'manga109', 'urban100', 'BSDS100'])
+    parser.add_argument('--unit_iter', type=int, default=10000)
+    parser.add_argument('--max_iter', type=int, default=500000)
+    args = parser.parse_args()
 
-    if opt is not None:
-        opt = option.parse(opt)
-        test(opt, benchmarks, unit_iter, max_iter)
+    if args.opt is not None:
+        test(args)
     else:
-        for test_model in test_model_list:
-            opt = option.parse(f'options/{test_model}.json')
-            test(opt, benchmarks, unit_iter, max_iter)
+        for test_opt in test_opt_list:
+            args.opt = f'options/{test_opt}.json'
+            test(args)

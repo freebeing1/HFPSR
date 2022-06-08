@@ -24,9 +24,9 @@
       ,
       "dataset_type": "sr" // "sr" | "plain" | "plainpatch"
       ,
-      "dataroot_H": "trainsets/trainH" // path of H training dataset. DIV2K (800 training images)
+      "dataroot_H": "trainsets/DIV2K/DIV2K_train_HR" // path of H training dataset. DIV2K (800 training images)
       ,
-      "dataroot_L": "trainsets/trainL" // path of L training dataset
+      "dataroot_L": "trainsets/DIV2K/DIV2K_train_LR_bicubic/X4" // path of L training dataset
       ,
       "H_size": 96 // 96/144|192/384 | 128/192/256/512. LR patch size is set to 48 or 64 when compared with RCAN or RRDB.
       ,
@@ -70,7 +70,7 @@
     "ff_layer": [
       0,
       0,
-      1,
+      0,
       0,
       0,
       1
@@ -95,10 +95,10 @@
   "train": {
     "G_lossfn_type": "hfpl", // High Frequency Preserving Loss
     "G_hfpl_params": {
-      "perceptual": 0.001,
-      "pixel": 0.1,
-      "pixel_hf": 0.05,
-      "pixel_hb": 0.1
+      "perceptual": 0,
+      "pixel": 1,
+      "pixel_hf": 0,
+      "pixel_hb": 1
     },
     "G_lossfn_weight": 1.0, // default
     "E_decay": 0.999 // Exponential Moving Average for netG: set 0 to disable; default setting 0.999
