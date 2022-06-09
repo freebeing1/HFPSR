@@ -5,9 +5,10 @@ import numpy as np
 from collections import OrderedDict
 import os
 import torch
-import requests
 import csv
+import requests
 
+# from models.network_hfpsr import HFPSR as net
 from utils import utils_image as util
 from utils import utils_option as option
 import torch.nn as nn
@@ -105,9 +106,9 @@ def main(opt, n_model=500000, benchmark='Set5'):
             test_results['ssim'].append(ssim)
             if img_gt.ndim == 3:  # RGB image
                 output_y = util.bgr2ycbcr(
-                    output.astype(np.float32) / 255.) * 255.
+                    output)
                 img_gt_y = util.bgr2ycbcr(
-                    img_gt.astype(np.float32) / 255.) * 255.
+                    img_gt)
                 psnr_y = util.calculate_psnr(output_y, img_gt_y, border=border)
                 ssim_y = util.calculate_ssim(output_y, img_gt_y, border=border)
                 test_results['psnr_y'].append(psnr_y)
@@ -170,7 +171,8 @@ def define_model(opt):
 def get_image_pair(opt, path):
     (imgname, imgext) = os.path.splitext(os.path.basename(path))
 
-    img_gt = cv2.imread(path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
+    img_gt = cv2.imread(path, cv2.IMREAD_COLOR).astype(
+        np.float32) / 255.  # HWC-BGR [0,1]
     img_lq = cv2.imread(f'testsets/{opt["benchmark"]}/LR_bicubic/X{opt["scale"]}/{imgname}x{opt["scale"]}{imgext}', cv2.IMREAD_COLOR).astype(
         np.float32) / 255.
 
@@ -225,6 +227,8 @@ def test(args):
         args.benchmarks = [args.benchmarks]
 
     for benchmark in args.benchmarks:
+        print(
+            f'################## TEST BENCHMARK [{benchmark}] ##################')
         _iter_list = list()
         for n in range(n_iter):
 
@@ -258,13 +262,14 @@ def test(args):
 
 if __name__ == '__main__':
     test_opt_list = ['hfpsr_prototype']
+    # ['Set5', 'Set14', 'manga109', 'urban100', 'BSDS100']
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--opt', type=str, default=None)
     parser.add_argument('--tile', type=int, default=None)
     parser.add_argument('--benchmarks', type=str,
                         default=['Set5', 'Set14', 'manga109', 'urban100', 'BSDS100'])
-    parser.add_argument('--unit_iter', type=int, default=10000)
+    parser.add_argument('--unit_iter', type=int, default=100000)
     parser.add_argument('--max_iter', type=int, default=500000)
     args = parser.parse_args()
 
