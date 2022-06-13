@@ -1,7 +1,9 @@
-/trainsets
-/testsets
-/superresolution
-/results
-/benchmark-results
-/options
-/show_graph.py
+trainsets
+testsets
+superresolution
+results
+benchmark-results
+options
+!options/hfpsr_prototype.json
+show_graph.py
+*.png
