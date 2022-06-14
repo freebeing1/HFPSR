@@ -93,6 +93,7 @@ def main(json_path='options/hfpsr_prototype.json'):
     if seed is None:
         seed = random.randint(1, 10000)
     print('Random seed: {}'.format(seed))
+    logger.info(f'Random seed : {seed}')
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
