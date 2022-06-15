@@ -1112,6 +1112,10 @@ class HFPSR(nn.Module):
             self.conv_last_connection = nn.Conv2d(
                 embed_dim*2, embed_dim, 3, 1, 1)
 
+        if self.last_connection == 'concat1':
+            self.conv_last_connection = nn.Conv2d(
+                embed_dim*2, embed_dim, 1, 1, 0)
+
         #####################################################################################################
         ###################### SR branch & HF branch, high quality image reconstruction #####################
         self.conv_before_upsample_sb = nn.Sequential(nn.Conv2d(embed_dim, num_feat, 3, 1, 1),
@@ -1203,7 +1207,7 @@ class HFPSR(nn.Module):
         # either connect with "sum" or connect with "concat" or not to connect.
         if self.last_connection == 'sum':
             x_SB = x_SB + x_HB
-        elif self.last_connection == 'concat':
+        elif self.last_connection in ['concat', 'concat1']:
             x_SB = self.conv_last_connection(
                 torch.cat((x_SB, x_HB), dim=1))  # 1 conv layer
         else:
