@@ -7,3 +7,6 @@ options
 !options/hfpsr_prototype.json
 show_graph.py
 *.png
+data/__pycache__
+models/__pycache__
+utils/__pycache__
