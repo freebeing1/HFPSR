@@ -340,7 +340,8 @@ class WindowAttention(nn.Module):
         self.register_buffer("relative_position_index",
                              relative_position_index)
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv_x = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv_f = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
 
@@ -356,13 +357,13 @@ class WindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
-        qkv_x = self.qkv(x).reshape(B_, N, 3, self.num_heads, C //
-                                    self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv_x = self.qkv_x(x).reshape(B_, N, 3, self.num_heads, C //
+                                      self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv_x[0], qkv_x[1], qkv_x[2]
 
         if f is not None:
-            qkv_f = self.qkv(f).reshape(B_, N, 3, self.num_heads, C //
-                                        self.num_heads).permute(2, 0, 3, 1, 4)
+            qkv_f = self.qkv_f(f).reshape(B_, N, 3, self.num_heads, C //
+                                          self.num_heads).permute(2, 0, 3, 1, 4)
             # make torchscript happy (cannot use tensor as tuple)
             k, v = qkv_f[1], qkv_f[2]
 
