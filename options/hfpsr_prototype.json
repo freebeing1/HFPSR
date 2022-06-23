@@ -93,6 +93,7 @@
     "init_type": "default"
   },
   "train": {
+    "manual_seed": 42, // fix manual seed for all models
     "G_lossfn_type": "hfpl", // High Frequency Preserving Loss
     "G_hfpl_params": {
       "perceptual": 0,
