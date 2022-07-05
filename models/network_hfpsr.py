@@ -398,7 +398,10 @@ class WindowAttention(nn.Module):
         x = self.proj_drop(x)
 
         if self.ff == 'sum':
-            x = x + f
+            if f is not None:
+                x = x + f
+            else:
+                x = x
         else:
             pass
 
