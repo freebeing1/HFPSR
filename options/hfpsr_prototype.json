@@ -98,7 +98,7 @@
     "G_hfpl_params": {
       "perceptual": 0,
       "pixel": 1,
-      "pixel_hf": 0,
+      "pixel_hf": 1,
       "pixel_hb": 1
     },
     "G_lossfn_weight": 1.0, // default

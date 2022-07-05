@@ -3,10 +3,11 @@ testsets
 superresolution
 results
 benchmark-results
-options
 !options/hfpsr_prototype.json
+options
 show_graph.py
 *.png
 data/__pycache__
 models/__pycache__
 utils/__pycache__
+__pycache__
