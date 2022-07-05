@@ -1031,6 +1031,7 @@ class HFPSR(nn.Module):
                          input_resolution=(patches_resolution_hb[0],
                                            patches_resolution_hb[1]),
                          depth=depths[i_layer],
+                         ff=ff,
                          ff_layer=ff_layer,
                          num_heads=num_heads[i_layer],
                          window_size=window_size,
