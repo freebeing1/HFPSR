@@ -342,7 +342,8 @@ class WindowAttention(nn.Module):
                              relative_position_index)
 
         self.qkv_x = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.qkv_f = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        if self.ff == 'cva':
+            self.qkv_f = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
 
