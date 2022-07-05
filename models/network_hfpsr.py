@@ -310,7 +310,7 @@ class WindowAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads, ff, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
 
         super().__init__()
         self.dim = dim
@@ -318,6 +318,7 @@ class WindowAttention(nn.Module):
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
+        self.ff = ff
 
         # define a parameter table of relative position bias
         self.relative_position_bias_table = nn.Parameter(
@@ -354,18 +355,22 @@ class WindowAttention(nn.Module):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
+            f: features from fusion layer with same shape of x
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
         qkv_x = self.qkv_x(x).reshape(B_, N, 3, self.num_heads, C //
                                       self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv_x[0], qkv_x[1], qkv_x[2]
-
-        if f is not None:
-            qkv_f = self.qkv_f(f).reshape(B_, N, 3, self.num_heads, C //
-                                          self.num_heads).permute(2, 0, 3, 1, 4)
-            # make torchscript happy (cannot use tensor as tuple)
-            k, v = qkv_f[1], qkv_f[2]
+    
+        if self.ff == 'cva':
+            if f is not None:
+                qkv_f = self.qkv_f(f).reshape(B_, N, 3, self.num_heads, C //
+                                            self.num_heads).permute(2, 0, 3, 1, 4)
+                # make torchscript happy (cannot use tensor as tuple)
+                k, v = qkv_f[1], qkv_f[2]
+        else:
+            pass
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
@@ -390,6 +395,12 @@ class WindowAttention(nn.Module):
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
+
+        if self.ff == 'sum':
+            x = x + f
+        else:
+            pass
+
         return x
 
     def extra_repr(self) -> str:
@@ -428,7 +439,7 @@ class SwinTransformerBlock(nn.Module):
         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
-    def __init__(self, dim, input_resolution, num_heads, ff_layer, window_size=7, shift_size=0,
+    def __init__(self, dim, input_resolution, num_heads, ff, ff_layer, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
@@ -450,7 +461,7 @@ class SwinTransformerBlock(nn.Module):
 
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
-            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads,
+            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, ff=ff,
             qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
 
         self.drop_path = DropPath(
@@ -647,7 +658,7 @@ class BasicLayer(nn.Module):
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
     """
 
-    def __init__(self, dim, input_resolution, depth, ff_layer, num_heads, window_size,
+    def __init__(self, dim, input_resolution, depth, ff, ff_layer, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False):
 
@@ -660,7 +671,9 @@ class BasicLayer(nn.Module):
         # build blocks
         self.blocks = nn.ModuleList([
             SwinTransformerBlock(dim=dim, input_resolution=input_resolution,
-                                 num_heads=num_heads, ff_layer=ff_layer[i],
+                                 num_heads=num_heads, 
+                                 ff=ff,
+                                 ff_layer=ff_layer[i],
                                  window_size=window_size,
                                  shift_size=0 if (
                                      i % 2 == 0) else window_size // 2,
@@ -736,7 +749,7 @@ class RSTB(nn.Module):
         resi_connection: The convolutional block before residual connection.
     """
 
-    def __init__(self, dim, input_resolution, depth, ff_layer, num_heads, window_size,
+    def __init__(self, dim, input_resolution, depth, ff, ff_layer, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
                  img_size=224, patch_size=4, resi_connection='1conv'):
@@ -748,6 +761,7 @@ class RSTB(nn.Module):
         self.residual_group = BasicLayer(dim=dim,
                                          input_resolution=input_resolution,
                                          depth=depth,
+                                         ff=ff,
                                          ff_layer=ff_layer,
                                          num_heads=num_heads,
                                          window_size=window_size,
@@ -922,6 +936,7 @@ class UpsampleOneStep(nn.Sequential):
 class HFPSR(nn.Module):
     def __init__(self, img_size=64, patch_size=1, in_chans=3,
                  embed_dim=96, ffc_depths=2, depths=[6, 6, 6], num_heads=[6, 6, 6],
+                 ff='cva',
                  ff_layer=[0, 0, 0, 0, 0, 1],
                  window_size=7, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
@@ -1067,6 +1082,7 @@ class HFPSR(nn.Module):
                          input_resolution=(patches_resolution_sb[0],
                                            patches_resolution_sb[1]),
                          depth=depths[i_layer],
+                         ff=ff,
                          ff_layer=ff_layer,
                          num_heads=num_heads[i_layer],
                          window_size=window_size,
