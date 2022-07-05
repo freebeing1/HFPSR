@@ -67,7 +67,7 @@
       6,
       6
     ],
-    "ff": "cva",
+    "ff": "cva", // "cva" | "sum"
     "ff_layer": [
       0,
       0,
