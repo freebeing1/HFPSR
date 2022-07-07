@@ -1,5 +1,5 @@
 {
-  "task": "hfpsr_prototpye" //  classical image sr for x2/x3/x4/x8. root/task/images-models-options
+  "task": "hfpsr_FF_FFLayer_LastConnection_a_b_g_d" //  classical image sr for x2/x3/x4/x8. root/task/images-models-options
   ,
   "model": "plain" // "plain" | "gan"
   ,
@@ -67,7 +67,7 @@
       6,
       6
     ],
-    "ff": "cva", // "cva" | "sum"
+    "ff": "cva1", // "cva1" | "cva2" | "sum1" | "sum2"
     "ff_layer": [
       0,
       0,

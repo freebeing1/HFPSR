@@ -244,7 +244,7 @@ class ResidualFFCBlock(nn.Module):
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
-        super().__init__()
+        super(Mlp, self).__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
@@ -310,15 +310,14 @@ class WindowAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, window_size, num_heads, ff, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads, ff_mode=False, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0., **kwargs):
 
-        super().__init__()
+        super(WindowAttention, self).__init__()
         self.dim = dim
         self.window_size = window_size  # Wh, Ww
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
-        self.ff = ff
 
         # define a parameter table of relative position bias
         self.relative_position_bias_table = nn.Parameter(
@@ -342,8 +341,9 @@ class WindowAttention(nn.Module):
                              relative_position_index)
 
         self.qkv_x = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        if self.ff == 'cva':
+        if ff_mode:
             self.qkv_f = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
 
@@ -352,7 +352,7 @@ class WindowAttention(nn.Module):
         trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, f, mask=None):
+    def forward(self, x, f=None, mask=None):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
@@ -364,12 +364,11 @@ class WindowAttention(nn.Module):
                                       self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv_x[0], qkv_x[1], qkv_x[2]
     
-        if self.ff == 'cva':
-            if f is not None:
-                qkv_f = self.qkv_f(f).reshape(B_, N, 3, self.num_heads, C //
-                                            self.num_heads).permute(2, 0, 3, 1, 4)
-                # make torchscript happy (cannot use tensor as tuple)
-                k, v = qkv_f[1], qkv_f[2]
+        if f is not None:
+            qkv_f = self.qkv_f(f).reshape(B_, N, 3, self.num_heads, C //
+                                        self.num_heads).permute(2, 0, 3, 1, 4)
+            # make torchscript happy (cannot use tensor as tuple)
+            k, v = qkv_f[1], qkv_f[2]
         else:
             pass
 
@@ -396,14 +395,6 @@ class WindowAttention(nn.Module):
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-
-        if self.ff == 'sum':
-            if f is not None:
-                x = x + f
-            else:
-                x = x
-        else:
-            pass
 
         return x
 
@@ -443,10 +434,10 @@ class SwinTransformerBlock(nn.Module):
         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
-    def __init__(self, dim, input_resolution, num_heads, ff, ff_layer, window_size=7, shift_size=0,
+    def __init__(self, dim, input_resolution, num_heads, ff, ff_mode, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
-        super().__init__()
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, **kwargs):
+        super(SwinTransformerBlock, self).__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.num_heads = num_heads
@@ -459,13 +450,22 @@ class SwinTransformerBlock(nn.Module):
             self.window_size = min(self.input_resolution)
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
-        self.is_ff = False
-        if ff_layer > 0:
-            self.is_ff = True
+        self.ff = ff
+        self.ff_mode = ff_mode
 
+        if self.ff_mode:
+            if self.ff in ['cva1', 'cva2']:
+                self.cva = WindowAttention(
+                    dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, ff_mode=True,
+                    qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, name=self.ff)
+            elif self.ff in ['sum1', 'sum2']:
+                pass
+            else:
+                raise ValueError(f'ff {ff} is not supported. "sum1" | "sum2" | "cva1" | "cva2" ')
+            
         self.norm1 = norm_layer(dim)
         self.attn = WindowAttention(
-            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, ff=ff,
+            dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, ff_mode=False,
             qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
 
         self.drop_path = DropPath(
@@ -508,68 +508,130 @@ class SwinTransformerBlock(nn.Module):
 
         return attn_mask
 
-    def forward(self, x, f_in, x_size):
-        H, W = x_size
-        B, L, C = x.shape
-        # assert L == H * W, "input feature has wrong size"
-
-        shortcut = x
-        x = self.norm1(x)
-        x = x.view(B, H, W, C)
-
-        # cyclic shift
+    def _cyclic_shift(self, x):
         if self.shift_size > 0:
             shifted_x = torch.roll(
                 x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
         else:
             shifted_x = x
-
-        # partition windows
+        return shifted_x
+    
+    def _partition_windows(self, shifted_x, c):
         # nW*B, window_size, window_size, C
         x_windows = window_partition(shifted_x, self.window_size)
         # nW*B, window_size*window_size, C
-        x_windows = x_windows.view(-1,
-                                   self.window_size * self.window_size, C)
+        x_windows = x_windows.view(-1, self.window_size*self.window_size, c)
+        return x_windows
 
-        if self.is_ff and f_in is not None:
-            f = f_in.view(B, H, W, C)
-            if self.shift_size > 0:
-                shifted_f = torch.roll(
-                    f, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-            else:
-                shifted_f = f
-            f_windows = window_partition(shifted_f, self.window_size)
-            f_windows = f_windows.view(-1,
-                                       self.window_size * self.window_size, C)
-        else:
-            f_windows = None
-
-        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
+    def _w_msa(self, x_size, x_windows):
         if self.input_resolution == x_size:
             # nW*B, window_size*window_size, C
             attn_windows = self.attn(
-                x_windows, f_windows, mask=self.attn_mask)
+                x_windows, None, mask=self.attn_mask)
         else:
             attn_windows = self.attn(
-                x_windows, f_windows, mask=self.calculate_mask(x_size).to(x.device))
+                x_windows, None, mask=self.calculate_mask(x_size).to(x_windows.device))
+        return attn_windows
 
-        # merge windows
-        attn_windows = attn_windows.view(-1,
-                                         self.window_size, self.window_size, C)
-        shifted_x = window_reverse(
-            attn_windows, self.window_size, H, W)  # B H' W' C
-
-        # reverse cyclic shift
+    def _reverse_cyclic_shift(self, shifted_x):
         if self.shift_size > 0:
             x = torch.roll(shifted_x, shifts=(
                 self.shift_size, self.shift_size), dims=(1, 2))
         else:
-            x = shifted_x
+            x = shifted_x # (B, H, W, C)
+        return x
+    
+    def _merge_windows(self, attn_windows, h, w, c):
+        attn_windows = attn_windows.view(-1,
+                                         self.window_size, self.window_size, c)
+        shifted_x = window_reverse(
+            attn_windows, self.window_size, h, w)  # B H' W' C
+        return shifted_x    
+
+    def _w_cva(self, x_size, x_windows, f_windows):
+        if self.input_resolution == x_size:
+            attn_windows = self.cva(
+                x_windows, f_windows, mask=self.attn_mask)
+        else:
+            attn_windows = self.cva(
+                x_windows, f_windows, mask=self.calculate_mask(x_size).to(x_windows.device))            
+        return attn_windows
+
+    def forward(self, x, f_in, x_size):
+        H, W = x_size
+        B, L, C = x.shape
+        # assert L == H * W, "input feature has wrong size"
+
+        shortcut = x # (B, H*W, C)
+        x = self.norm1(x) # Layer normalization
+        
+        x = x.view(B, H, W, C) # (B, H, W, C)
+
+        # cyclic shift
+        shifted_x = self._cyclic_shift(x)
+        # partition windows
+        x_windows = self._partition_windows(shifted_x, C)
+        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
+        attn_windows = self._w_msa(x_size, x_windows)
+        # merge windows
+        shifted_x = self._merge_windows(attn_windows, H, W, C)
+        # reverse cyclic shift
+        x = self._reverse_cyclic_shift(shifted_x)
+
         x = x.view(B, H * W, C)
-        f_out = x
+
+        if self.ff_mode:       
+            if self.ff == 'sum1':
+                if f_in is not None:
+                    x = x + f_in
+                f_out = x
+                x = shortcut + self.drop_path(x)
+
+            elif self.ff == 'sum2':
+                x = shortcut + self.drop_path(x)
+                if f_in is not None:
+                    x = x + f_in
+                f_out = x
+
+            elif self.ff == 'cva1':
+                f_out = x
+                x = shortcut + self.drop_path(x)
+                
+                if f_in is not None:
+                    x = x.view(B, H, W, C)
+                    f_in = f_in.view(B, H, W, C)
+                    shifted_x = self._cyclic_shift(x)
+                    shifted_f = self._cyclic_shift(f_in)
+                    x_windows = self._partition_windows(shifted_x, C)
+                    f_windows = self._partition_windows(shifted_f, C)
+                    cva_windows = self._w_cva(x_size, x_windows, f_windows)
+                    shifted_x = self._merge_windows(cva_windows, H, W, C)
+                    x = self._reverse_cyclic_shift(shifted_x)
+                    x = x.view(B, H * W, C)
+
+            elif self.ff == 'cva2':
+                f_out = x
+                x = shortcut + self.drop_path(x)
+                
+                if f_in is not None:
+                    f_in = x + f_in
+                    x = x.view(B, H, W, C)
+                    f_in = f_in.view(B, H, W, C)
+                    shifted_x = self._cyclic_shift(x)
+                    shifted_f = self._cyclic_shift(f_in)
+                    x_windows = self._partition_windows(shifted_x, C)
+                    f_windows = self._partition_windows(shifted_f, C)
+                    cva_windows = self._w_cva(x_size, x_windows, f_windows)
+                    shifted_x = self._merge_windows(cva_windows, H, W, C)
+                    x = self._reverse_cyclic_shift(shifted_x)
+                    x = x.view(B, H * W, C)
+
+            else:
+                raise ValueError(f'ff {self.ff} is not supported. "sum1" | "sum2" | "cva1" | "cva2"')
+        else:
+            f_out = x
 
         # FFN
-        x = shortcut + self.drop_path(x)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
 
         return x, f_out
@@ -666,18 +728,19 @@ class BasicLayer(nn.Module):
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False):
 
-        super().__init__()
+        super(BasicLayer, self).__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.use_checkpoint = use_checkpoint
+        self.ff = ff
         self.ff_depth = len(ff_layer)
         # build blocks
         self.blocks = nn.ModuleList([
             SwinTransformerBlock(dim=dim, input_resolution=input_resolution,
                                  num_heads=num_heads, 
                                  ff=ff,
-                                 ff_layer=ff_layer[i],
+                                 ff_mode=True if ff_layer[i]==1 else False, # 0 | 1
                                  window_size=window_size,
                                  shift_size=0 if (
                                      i % 2 == 0) else window_size // 2,
@@ -686,7 +749,8 @@ class BasicLayer(nn.Module):
                                  drop=drop, attn_drop=attn_drop,
                                  drop_path=drop_path[i] if isinstance(
                                      drop_path, list) else drop_path,
-                                 norm_layer=norm_layer)
+                                 norm_layer=norm_layer,
+                                 name=f'SwinTransformerBlock{i}')
             for i in range(depth)])
 
         # patch merging layer
@@ -756,7 +820,7 @@ class RSTB(nn.Module):
     def __init__(self, dim, input_resolution, depth, ff, ff_layer, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
-                 img_size=224, patch_size=4, resi_connection='1conv'):
+                 img_size=224, patch_size=4, resi_connection='1conv', **kwargs):
         super(RSTB, self).__init__()
 
         self.dim = dim
@@ -1048,7 +1112,8 @@ class HFPSR(nn.Module):
                          use_checkpoint=use_checkpoint,
                          img_size=img_size,
                          patch_size=patch_size,
-                         resi_connection=resi_connection
+                         resi_connection=resi_connection,
+                         name=f'RSTB_HB_{i_layer}'
                          )
             self.layers_hb.append(layer)
         self.norm_hb = norm_layer(self.num_features)
@@ -1101,7 +1166,8 @@ class HFPSR(nn.Module):
                          use_checkpoint=use_checkpoint,
                          img_size=img_size,
                          patch_size=patch_size,
-                         resi_connection=resi_connection
+                         resi_connection=resi_connection,
+                         name=f'RSTB_SB_{i_layer}'
                          )
             self.layers_sb.append(layer)
         self.norm_sb = norm_layer(self.num_features)
@@ -1196,8 +1262,9 @@ class HFPSR(nn.Module):
         for idx, layer in enumerate(self.layers_sb):
             x, _ = layer(x, f_hb[idx], x_size)
 
-        x = self.norm_hb(x)  # B L C
-        x = self.patch_unembed_hb(x, x_size)
+        x = self.norm_sb(x)  # B L C
+        x = self.patch_unembed_sb(x, x_size)
+
         return x
 
     def forward(self, x):
@@ -1254,10 +1321,15 @@ if __name__ == '__main__':
     window_size = 8
     height = (1024 // upscale // window_size + 1) * window_size
     width = (720 // upscale // window_size + 1) * window_size
-    # model = SwinIR(upscale=2, img_size=(height, width),
-    #                window_size=window_size, img_range=1., depths=[6, 6, 6, 6],
-    #                embed_dim=60, num_heads=[6, 6, 6, 6], mlp_ratio=2, upsampler='pixelshuffledirect')
-    # print(model)
+    model = HFPSR(img_size=48, in_chans=3,
+                 embed_dim=180, ffc_depths=1, depths=[3, 3], num_heads=[3, 3],
+                 ff='sum1',
+                 ff_layer=[0, 0, 1],
+                 window_size=8, mlp_ratio=2.,
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
+                 upscale=4, img_range=1.,
+                 upsampler='pixelshuffle', resi_connection='1conv', last_connection='')
+    print(model)
     # print(height, width, model.flops() / 1e9)
 
     # x = torch.randn((1, 3, height, width))
