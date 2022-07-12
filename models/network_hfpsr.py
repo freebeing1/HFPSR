@@ -598,6 +598,7 @@ class SwinTransformerBlock(nn.Module):
                 x = shortcut + self.drop_path(x)
                 
                 if f_in is not None:
+                    shortcut_cva = x
                     x = x.view(B, H, W, C)
                     f_in = f_in.view(B, H, W, C)
                     shifted_x = self._cyclic_shift(x)
@@ -608,23 +609,24 @@ class SwinTransformerBlock(nn.Module):
                     shifted_x = self._merge_windows(cva_windows, H, W, C)
                     x = self._reverse_cyclic_shift(shifted_x)
                     x = x.view(B, H * W, C)
+                    x = x + shortcut_cva
 
-            elif self.ff == 'cva2':
-                f_out = x
-                x = shortcut + self.drop_path(x)
+            # elif self.ff == 'cva2':
+            #     f_out = x
+            #     x = shortcut + self.drop_path(x)
                 
-                if f_in is not None:
-                    f_in = x + f_in
-                    x = x.view(B, H, W, C)
-                    f_in = f_in.view(B, H, W, C)
-                    shifted_x = self._cyclic_shift(x)
-                    shifted_f = self._cyclic_shift(f_in)
-                    x_windows = self._partition_windows(shifted_x, C)
-                    f_windows = self._partition_windows(shifted_f, C)
-                    cva_windows = self._w_cva(x_size, x_windows, f_windows)
-                    shifted_x = self._merge_windows(cva_windows, H, W, C)
-                    x = self._reverse_cyclic_shift(shifted_x)
-                    x = x.view(B, H * W, C)
+            #     if f_in is not None:
+            #         f_in = x + f_in
+            #         x = x.view(B, H, W, C)
+            #         f_in = f_in.view(B, H, W, C)
+            #         shifted_x = self._cyclic_shift(x)
+            #         shifted_f = self._cyclic_shift(f_in)
+            #         x_windows = self._partition_windows(shifted_x, C)
+            #         f_windows = self._partition_windows(shifted_f, C)
+            #         cva_windows = self._w_cva(x_size, x_windows, f_windows)
+            #         shifted_x = self._merge_windows(cva_windows, H, W, C)
+            #         x = self._reverse_cyclic_shift(shifted_x)
+            #         x = x.view(B, H * W, C)
 
             else:
                 raise ValueError(f'ff {self.ff} is not supported. "sum1" | "sum2" | "cva1" | "cva2"')
