@@ -5,6 +5,7 @@ import torch.nn as nn
 import torchvision
 from torch.nn import functional as F
 from torch import autograd as autograd
+from utils.utils_filter import high_frequency_mask
 
 """
 Sequential(
@@ -58,6 +59,7 @@ class HighFrequencyPreservingLoss(nn.Module):
         super(HighFrequencyPreservingLoss, self).__init__()
         self.opt_lossfn = opt
         self.hpf = hpf
+        self.hf_mask = high_frequency_mask
 
         self.perceptual_loss = PerceptualLoss(lossfn_type='l1')
         self.pixel_loss = nn.L1Loss()
@@ -83,7 +85,7 @@ class HighFrequencyPreservingLoss(nn.Module):
         sub_loss['perceptual'] = self.perceptual_loss(x_sb, gt)
         sub_loss['pixel'] = self.pixel_loss(x_sb, gt)
         sub_loss['pixel_hf'] = self.pixel_loss_hf(self.hpf(x_sb), self.hpf(gt))
-        sub_loss['pixel_hb'] = self.hb_loss(x_hb, self.hpf(gt))
+        sub_loss['pixel_hb'] = self.hb_loss(x_hb, self.hf_mask(gt, self.hpf(gt)))
 
         net_loss = 0.0
         net_loss += self.opt_lossfn['perceptual'] * sub_loss['perceptual']

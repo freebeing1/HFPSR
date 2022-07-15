@@ -14,6 +14,8 @@ from utils import utils_logger
 from utils import utils_image as util
 from utils import utils_option as option
 from utils.utils_dist import get_dist_info, init_dist
+from utils.utils_filter import get_high_pass_filter, high_frequency_mask
+
 
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
@@ -224,15 +226,17 @@ def main(json_path='options/hfpsr_prototype.json'):
                     E_img = util.tensor2uint(visuals['E'])
                     H_img = util.tensor2uint(visuals['H'])
                     E_HB_img = util.tensor2uint(visuals['E_HB'])
-                    H_HF_img = util.tensor2uint(visuals['H_HF'])
+                    H_MASK_img = util.tensor2uint(visuals['H_MASK'])
 
                     # -----------------------
                     # save estimated image E
                     # -----------------------
                     E_save_path = os.path.join(img_dir, 'SR-branch')
                     E_HB_save_path = os.path.join(img_dir, 'HF-branch')
+                    H_MASK_save_path = os.path.join(img_dir, 'HR-masked')
                     util.mkdir(E_save_path)
                     util.mkdir(E_HB_save_path)
+                    util.mkdir(H_MASK_save_path)
 
                     E_save_img_path = os.path.join(
                         E_save_path, f'{img_name}_{current_step}.png')
@@ -242,6 +246,10 @@ def main(json_path='options/hfpsr_prototype.json'):
                         E_HB_save_path, f'{img_name}_{current_step}.png')
                     util.imsave(E_HB_img, E_HB_save_img_path)
 
+                    H_MASK_save_img_path = os.path.join(
+                        H_MASK_save_path, f'{img_name}_{current_step}.png')
+                    util.imsave(H_MASK_img, H_MASK_save_img_path)
+
                     # -----------------------
                     # calculate PSNR
                     # -----------------------
@@ -250,7 +258,8 @@ def main(json_path='options/hfpsr_prototype.json'):
                     current_psnr_y = util.calculate_psnr(util.rgb2ycbcr(
                         E_img), util.rgb2ycbcr(H_img), border=border)
                     current_psnr_hf = util.calculate_psnr(
-                        E_HB_img, H_HF_img, border=border)
+                        E_HB_MASK, H_MASK_img, border=border)
+
                     logger.info(
                         '{:->4d}--> {:>10s} | {:<4.2f}dB | (PSNR_Y {:<4.2f}dB) (PSNR_HF {:<4.2f}dB)'.format(idx, image_name_ext, current_psnr, current_psnr_y, current_psnr_hf))
 

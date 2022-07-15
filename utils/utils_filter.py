@@ -3,6 +3,15 @@ import torch.nn as nn
 import math
 
 
+def high_frequency_mask(gt, gt_hf):
+    mask = gt_hf.clone()
+    mu_mask = mask.mean(dim=(0,2,3)).view(1,3,1,1)
+    sigma_mask = mask.std(dim=(0,2,3)).view(1,3,1,1)
+    z_mask = (mask-mu_mask.expand(mask.size()))/sigma_mask.expand(mask.size())
+    mask[torch.abs(z_mask)>0.5] = 1
+    mask[torch.abs(z_mask)<=0.5] = 0.1
+    return gt * mask
+
 def get_high_pass_filter(opt):
     opt_filter = opt['netG']['high_pass_filter']
     opt_filter['n_channels'] = opt['n_channels']

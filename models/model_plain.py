@@ -16,7 +16,7 @@ from models.loss_ssim import SSIMLoss
 
 from utils.utils_model import test_mode
 from utils.utils_regularizers import regularizer_orth, regularizer_clip
-from utils.utils_filter import get_high_pass_filter
+from utils.utils_filter import get_high_pass_filter, high_frequency_mask
 
 
 class ModelPlain(ModelBase):
@@ -180,6 +180,7 @@ class ModelPlain(ModelBase):
         self.G_optimizer.zero_grad()
         self.netG_forward()
 
+        # net_loss = self.G_lossfn(self.E, self.H, self.HF)
         net_loss = self.G_lossfn(self.E, self.H)
 
         if isinstance(net_loss, tuple):
@@ -252,11 +253,9 @@ class ModelPlain(ModelBase):
 
         if need_HF:
             self.E_SB = self.E[0]
-            self.E_HB = self.E[1]/2 + 0.5  # [-1, 1] -> [0, 1]
+            self.E_HB = self.E[1]
             out_dict['E_HB'] = self.E_HB.detach()[0].float().cpu()
-            self.H_HF = self.high_pass_filter(
-                self.H)/2 + 0.5  # [-1, 1] -> [0, 1]
-            out_dict['H_HF'] = self.H_HF.detach()[0].float().cpu()
+            out_dict['H_MASK'] = high_frequency_mask(self.H, self.high_pass_filter(self.H)).detach()[0].float().cpu()
 
         else:
             self.E_SB = self.E
